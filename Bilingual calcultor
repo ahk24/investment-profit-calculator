@@ -1,0 +1,162 @@
+# Bilingual Investment vs. Savings Simulator: English / فارسی
+
+
+def get_monthly_interest_rate(profit_percentage, profit_period):
+    """
+    Convert a nominal profit rate into an effective monthly rate.
+    """
+    rate = profit_percentage / 100
+    p = profit_period.lower()
+    if p == "annually":
+        return (1 + rate)**(1/12) - 1
+    elif p == "quarterly":
+        return (1 + rate)**(1/3) - 1
+    elif p == "monthly":
+        return rate
+    else:
+        raise ValueError("Profit period must be 'monthly', 'quarterly', or 'annually'.")
+
+
+def get_months_per(period):
+    """
+    Return how many months correspond to one period.
+    """
+    p = period.lower()
+    if p == "monthly":
+        return 1
+    elif p == "quarterly":
+        return 3
+    elif p == "annually":
+        return 12
+    else:
+        raise ValueError("Period must be 'monthly', 'quarterly', or 'annually'.")
+
+
+def calculate_total(
+    initial_amount,
+    profit_percentage,
+    profit_period,
+    additional_sum,
+    additional_sum_period,
+    time_units
+):
+    """
+    Simulate an investment with monthly compounding derived from profit_period,
+    and contributions at a different periodicity.
+    Returns the final balance after the simulation.
+    """
+    months_per_profit = get_months_per(profit_period)
+    total_months      = time_units * months_per_profit
+    monthly_rate      = get_monthly_interest_rate(profit_percentage, profit_period)
+    add_interval      = get_months_per(additional_sum_period)
+
+    balance = initial_amount
+
+    # Simulate each month
+    for month in range(1, total_months + 1):
+        # 1) Apply interest for this month
+        balance *= (1 + monthly_rate)
+        # 2) Add contribution at month-end if due
+        if additional_sum > 0 and (month % add_interval == 0):
+            balance += additional_sum
+
+    return balance
+
+
+# ——————————— Translations ———————————
+translations = {
+    'en': {
+        'select_lang':      "Select language / زبان را انتخاب کنید [English/Persian]: ",
+        'initial_amount':   "Initial amount",
+        'profit_pct':       "Profit percentage (e.g. 10 for 10%)",
+        'profit_period':    "Profit period",
+        'period_opts':      "(monthly/quarterly/annually)",
+        'add_sum':          "Additional sum each period",
+        'add_period':       "Contribution period",
+        'time':             "Time (in number of {profit_period})",
+        'period_monthly':   "monthly",
+        'period_quarterly': "quarterly",
+        'period_annually':  "annually",
+        'output_total':     "📈 Total after {time} {period_text}(s): {total:.2f} currency units",
+        'output_saved':     "💰 Total if simply saved (no interest): {saved:.2f} currency units",
+        'output_gain':      "📊 Gain from investing vs. saving: {gain:.2f} currency units",
+    },
+    'fa': {
+        'select_lang':      "Select language / زبان را انتخاب کنید [English/Persian]: ",
+        'initial_amount':   "مبلغ اولیه",
+        'profit_pct':       "درصد سود (مثلاً ۱۰ برای ۱۰٪)",
+        'profit_period':    "دوره سود",
+        'period_opts':      "(ماهانه/سه‌ماهه/سالانه)",
+        'add_sum':          "مبلغ اضافی در هر دوره",
+        'add_period':       "دوره مبلغ اضافی",
+        'time':             "مدت زمان (به تعداد {profit_period})",
+        'period_monthly':   "ماهانه",
+        'period_quarterly': "سه‌ماهه",
+        'period_annually':  "سالانه",
+        'output_total':     "📈 مجموع پس از {time} دورهٔ {period_text}: {total:.2f} واحد پولی",
+        'output_saved':     "💰 مجموع اگر صرفاً پس‌انداز می‌شد (بدون سود): {saved:.2f} واحد پولی",
+        'output_gain':      "📊 میزان افزایش از سرمایه‌گذاری نسبت به پس‌انداز: {gain:.2f} واحد پولی",
+    }
+}
+
+# map user entry to internal keys
+period_map = {
+    'en': {'monthly': 'monthly', 'quarterly': 'quarterly', 'annually': 'annually'},
+    'fa': {'ماهانه': 'monthly', 'سه‌ماهه': 'quarterly', 'سالانه': 'annually'}
+}
+
+# Prompt helper
+
+def input_with_default(prompt, default, cast=str):
+    line = input(f"{prompt} [default: {default}]: ").strip()
+    return cast(line) if line else default
+
+# ——————————— Language Selection ———————————
+lang_raw = input(translations['en']['select_lang']).strip().lower()
+lang = 'fa' if lang_raw in ('persian', 'fa', 'farsi', 'فارسی') else 'en'
+t = translations[lang]
+
+# ——————————— Gather Inputs ———————————
+initial_amount        = input_with_default(t['initial_amount'], 0, float)
+profit_percentage     = input_with_default(t['profit_pct'], 10, float)
+
+# Profit period
+pp_input = input_with_default(f"{t['profit_period']} {t['period_opts']}", t['period_annually'])
+profit_period         = period_map[lang].get(pp_input, pp_input)
+
+# Additional contributions
+additional_sum        = input_with_default(t['add_sum'], 0, float)
+asp_input             = input_with_default(f"{t['add_period']} {t['period_opts']}", t['period_monthly'])
+additional_sum_period = period_map[lang].get(asp_input, asp_input)
+
+# Time units
+pp_text               = t['period_' + profit_period]
+time_prompt           = t['time'].format(profit_period=pp_text)
+time_units            = input_with_default(time_prompt, 1, int)
+
+# ——————————— Calculation & Output ———————————
+try:
+    total = calculate_total(
+        initial_amount,
+        profit_percentage,
+        profit_period,
+        additional_sum,
+        additional_sum_period,
+        time_units
+    )
+
+    # Calculate "saved" scenario (no interest)
+    months_per_profit = get_months_per(profit_period)
+    total_months      = time_units * months_per_profit
+    contrib_interval  = get_months_per(additional_sum_period)
+    num_contribs      = total_months // contrib_interval
+    saved_total       = initial_amount + additional_sum * num_contribs
+    gain              = total - saved_total
+
+    # Display results
+    print(t['output_total'].format(time=time_units, period_text=pp_text, total=total))
+    print(t['output_saved'].format(saved=saved_total))
+    print(t['output_gain'].format(gain=gain))
+
+except ValueError as e:
+    print(f"❌ Error: {e}")
