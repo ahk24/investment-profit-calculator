@@ -32,34 +32,47 @@ def get_months_per(period):
         raise ValueError("Period must be 'monthly', 'quarterly', or 'annually'.")
 
 
-def calculate_total(
-    initial_amount,
-    profit_percentage,
-    profit_period,
-    additional_sum,
-    additional_sum_period,
-    time_units
-):
+def calculate_total_schedule(initial_amount, profit_percentage, profit_period, segments):
     """
     Simulate an investment with monthly compounding derived from profit_period,
-    and contributions at a different periodicity.
-    Returns the final balance after the simulation.
+    and piecewise contributions defined in `segments` list.
+    Each segment is a dict with:
+      - 'duration_units': length in profit_period units
+      - 'amount': contribution amount each interval
+      - 'period': contribution period ('monthly', 'quarterly', 'annually')
+    Returns the final balance.
     """
+    # Determine monthly parameters
     months_per_profit = get_months_per(profit_period)
-    total_months      = time_units * months_per_profit
-    monthly_rate      = get_monthly_interest_rate(profit_percentage, profit_period)
-    add_interval      = get_months_per(additional_sum_period)
+    monthly_rate = get_monthly_interest_rate(profit_percentage, profit_period)
 
+    # Build schedule with start/end months, amount, and interval
+    schedule = []
+    start_month = 1
+    total_months = 0
+    for seg in segments:
+        seg_months = seg['duration_units'] * months_per_profit
+        interval = get_months_per(seg['period'])
+        schedule.append({
+            'start': start_month,
+            'end': start_month + seg_months - 1,
+            'amount': seg['amount'],
+            'interval': interval
+        })
+        start_month += seg_months
+        total_months += seg_months
+
+    # Simulate month-by-month
     balance = initial_amount
-
-    # Simulate each month
     for month in range(1, total_months + 1):
-        # 1) Apply interest for this month
+        # 1) Apply interest
         balance *= (1 + monthly_rate)
-        # 2) Add contribution at month-end if due
-        if additional_sum > 0 and (month % add_interval == 0):
-            balance += additional_sum
-
+        # 2) Add contribution if due in the current segment
+        for seg in schedule:
+            if seg['start'] <= month <= seg['end']:
+                if seg['amount'] > 0 and ((month - seg['start'] + 1) % seg['interval'] == 0):
+                    balance += seg['amount']
+                break
     return balance
 
 
@@ -71,13 +84,13 @@ translations = {
         'profit_pct':       "Profit percentage (e.g. 10 for 10%)",
         'profit_period':    "Profit period",
         'period_opts':      "(monthly/quarterly/annually)",
-        'add_sum':          "Additional sum each period",
-        'add_period':       "Contribution period",
-        'time':             "Time (in number of {profit_period})",
         'period_monthly':   "monthly",
         'period_quarterly': "quarterly",
         'period_annually':  "annually",
-        'output_total':     "📈 Total after {time} {period_text}(s): {total:.2f} currency units",
+        'add_segments':     "Enter segment durations (in number of {profit_period}s), comma-separated",
+        'segment_amounts':  "Enter contribution amounts for each segment, comma-separated",
+        'segment_periods':  "Enter contribution periods for each segment (comma-separated, use monthly/quarterly/annually)",
+        'output_total':     "📈 Total after {total_months} months: {total:.2f} currency units",
         'output_saved':     "💰 Total if simply saved (no interest): {saved:.2f} currency units",
         'output_gain':      "📊 Gain from investing vs. saving: {gain:.2f} currency units",
     },
@@ -87,13 +100,13 @@ translations = {
         'profit_pct':       "درصد سود (مثلاً ۱۰ برای ۱۰٪)",
         'profit_period':    "دوره سود",
         'period_opts':      "(ماهانه/سه‌ماهه/سالانه)",
-        'add_sum':          "مبلغ اضافی در هر دوره",
-        'add_period':       "دوره مبلغ اضافی",
-        'time':             "مدت زمان (به تعداد {profit_period})",
         'period_monthly':   "ماهانه",
         'period_quarterly': "سه‌ماهه",
         'period_annually':  "سالانه",
-        'output_total':     "📈 مجموع پس از {time} دورهٔ {period_text}: {total:.2f} واحد پولی",
+        'add_segments':     "مدت‌های هر بخش را (تعداد {profit_period}) با کاما جدا وارد کنید",
+        'segment_amounts':  "مبالغ هر بخش را با کاما جدا وارد کنید",
+        'segment_periods':  "دوره‌های پرداخت برای هر بخش را با کاما جدا وارد کنید (ماهانه/سه‌ماهه/سالانه)",
+        'output_total':     "📈 مجموع پس از {total_months} ماه: {total:.2f} واحد پولی",
         'output_saved':     "💰 مجموع اگر صرفاً پس‌انداز می‌شد (بدون سود): {saved:.2f} واحد پولی",
         'output_gain':      "📊 میزان افزایش از سرمایه‌گذاری نسبت به پس‌انداز: {gain:.2f} واحد پولی",
     }
@@ -116,47 +129,66 @@ lang_raw = input(translations['en']['select_lang']).strip().lower()
 lang = 'fa' if lang_raw in ('persian', 'fa', 'farsi', 'فارسی') else 'en'
 t = translations[lang]
 
-# ——————————— Gather Inputs ———————————
-initial_amount        = input_with_default(t['initial_amount'], 0, float)
-profit_percentage     = input_with_default(t['profit_pct'], 10, float)
+# ——————————— Gather Core Inputs ———————————
+initial_amount    = input_with_default(t['initial_amount'], 0, float)
+profit_percentage = input_with_default(t['profit_pct'], 10, float)
 
-# Profit period
-pp_input = input_with_default(f"{t['profit_period']} {t['period_opts']}", t['period_annually'])
-profit_period         = period_map[lang].get(pp_input, pp_input)
+# Profit period selection
+pp_in = input_with_default(f"{t['profit_period']} {t['period_opts']}", t['period_annually'])
+profit_period     = period_map[lang].get(pp_in, pp_in)
 
-# Additional contributions
-additional_sum        = input_with_default(t['add_sum'], 0, float)
-asp_input             = input_with_default(f"{t['add_period']} {t['period_opts']}", t['period_monthly'])
-additional_sum_period = period_map[lang].get(asp_input, asp_input)
+# Segment definitions
+# Durations in profit_period units, comma-separated
+dur_str = input_with_default(
+    t['add_segments'].format(profit_period=t['period_' + profit_period]),
+    "1"
+)
+durations = [int(x.strip()) for x in dur_str.split(',')]
 
-# Time units
-pp_text               = t['period_' + profit_period]
-time_prompt           = t['time'].format(profit_period=pp_text)
-time_units            = input_with_default(time_prompt, 1, int)
+# Contribution amounts per segment
+amt_str = input_with_default(t['segment_amounts'], "0")
+amounts = [float(x.strip()) for x in amt_str.split(',')]
+if len(amounts) == 1:
+    amounts *= len(durations)
+elif len(amounts) != len(durations):
+    raise ValueError("Number of segment amounts must match number of durations.")
 
-# ——————————— Calculation & Output ———————————
-try:
-    total = calculate_total(
-        initial_amount,
-        profit_percentage,
-        profit_period,
-        additional_sum,
-        additional_sum_period,
-        time_units
-    )
+# Contribution periods per segment
+per_str = input_with_default(f"{t['segment_periods']}", t['period_monthly'])
+periods = [p.strip() for p in per_str.split(',')]
+mapped_periods = [period_map[lang].get(p, p) for p in periods]
+if len(mapped_periods) == 1:
+    mapped_periods *= len(durations)
+elif len(mapped_periods) != len(durations):
+    raise ValueError("Number of segment periods must match number of durations.")
 
-    # Calculate "saved" scenario (no interest)
-    months_per_profit = get_months_per(profit_period)
-    total_months      = time_units * months_per_profit
-    contrib_interval  = get_months_per(additional_sum_period)
-    num_contribs      = total_months // contrib_interval
-    saved_total       = initial_amount + additional_sum * num_contribs
-    gain              = total - saved_total
+# Build segments list
+nsegments = []
+for du, am, pe in zip(durations, amounts, mapped_periods):
+    nsegments.append({'duration_units': du, 'amount': am, 'period': pe})
 
-    # Display results
-    print(t['output_total'].format(time=time_units, period_text=pp_text, total=total))
-    print(t['output_saved'].format(saved=saved_total))
-    print(t['output_gain'].format(gain=gain))
+# ——————————— Calculation & Results ———————————
+# Compute final invested total
+total = calculate_total_schedule(
+    initial_amount,
+    profit_percentage,
+    profit_period,
+    nsegments
+)
 
-except ValueError as e:
-    print(f"❌ Error: {e}")
+# Compute saved-only total
+months_per_profit = get_months_per(profit_period)
+total_months = sum(durations) * months_per_profit
+saved_contribs = 0
+for seg in nsegments:
+    seg_months = seg['duration_units'] * months_per_profit
+    contribs = seg_months // get_months_per(seg['period'])
+    saved_contribs += contribs * seg['amount']
+saved_total = initial_amount + saved_contribs
+
+gain = total - saved_total
+
+# Outputs
+print(t['output_total'].format(total_months=total_months, total=total))
+print(t['output_saved'].format(saved=saved_total))
+print(t['output_gain'].format(gain=gain))
